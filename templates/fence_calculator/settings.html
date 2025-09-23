@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="rounded-lg p-5 border border-slate-800/60 bg-slate-900/60 shadow-glow">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold text-slate-100">Settings — Materials</h2>
+    <button id="scrapeBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white rounded px-3 py-1.5 transition">Scrape Prices Now</button>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="text-slate-300">
+        <tr class="text-left border-b border-slate-800">
+          <th class="py-2 pr-4">Name</th>
+          <th class="py-2 pr-4">Unit</th>
+          <th class="py-2 pr-4">Current Price</th>
+          <th class="py-2 pr-4">Roll Length (m)</th>
+          <th class="py-2 pr-4">Source</th>
+          <th class="py-2 pr-4">Last Update</th>
+          <th class="py-2 pr-4">Auto</th>
+          <th class="py-2 pr-4">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="matBody" class="text-slate-300"></tbody>
+    </table>
+  </div>
+</div>
+<script>
+async function loadMaterials() {
+  const res = await fetch('/settings/api/materials');
+  const data = await res.json();
+  const tb = document.getElementById('matBody');
+  tb.innerHTML = '';
+  data.materials.forEach(m => {
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-slate-800';
+    tr.innerHTML = `
+      <td class="py-2 pr-4">${m.name}</td>
+      <td class="py-2 pr-4">${m.unit}</td>
+      <td class="py-2 pr-4"><input type="number" step="0.01" value="${m.current_price ?? ''}" class="border border-slate-700 bg-slate-800/70 rounded px-2 py-1 w-28 text-slate-200" data-f="price"></td>
+      <td class="py-2 pr-4"><input type="number" step="0.01" value="${m.roll_length ?? ''}" class="border border-slate-700 bg-slate-800/70 rounded px-2 py-1 w-28 text-slate-200" data-f="roll-length"></td>
+      <td class="py-2 pr-4"><input type="text" value="${m.price_source ?? ''}" class="border border-slate-700 bg-slate-800/70 rounded px-2 py-1 w-56 text-slate-200" data-f="source"></td>
+      <td class="py-2 pr-4">${m.last_price_update ? new Date(m.last_price_update).toLocaleString() : '—'}</td>
+      <td class="py-2 pr-4"><input type="checkbox" ${m.auto_update_enabled ? 'checked' : ''} data-f="auto"></td>
+      <td class="py-2 pr-4"><button class="bg-primary-600 hover:bg-primary-500 text-white rounded px-3 py-1.5 transition" data-action="update">Update</button></td>
+    `;
+    tr.dataset.id = m.id;
+    tb.appendChild(tr);
+  });
+}
+
+document.getElementById('matBody').addEventListener('click', async (e) => {
+  if (e.target.dataset.action === 'update') {
+    const tr = e.target.closest('tr');
+    const id = tr.dataset.id;
+    const price = tr.querySelector('[data-f="price"]').value;
+    const rollLength = tr.querySelector('[data-f="roll-length"]').value;
+    const source = tr.querySelector('[data-f="source"]').value;
+    const auto = tr.querySelector('[data-f="auto"]').checked;
+    const res = await fetch('/settings/api/update-material', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, current_price: price, roll_length: rollLength, price_source: source, auto_update_enabled: auto })
+    });
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || 'Error updating');
+    await loadMaterials();
+  }
+});
+
+document.getElementById('scrapeBtn').addEventListener('click', async () => {
+  const res = await fetch('/settings/api/scrape', { method: 'POST' });
+  const data = await res.json();
+  alert(`Updated: ${data.updated} materials at ${data.timestamp}`);
+  await loadMaterials();
+});
+
+loadMaterials();
+</script>
+{% endblock %}

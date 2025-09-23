@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="rounded-lg p-5 border border-slate-800/60 bg-slate-900/60 shadow-glow">
+  <h2 class="text-lg font-semibold mb-2 text-slate-100">Calculation #{{ calc.id }}</h2>
+  <div class="text-sm space-y-1 text-slate-300">
+    <div>Fence type: {{ calc.fence_type }}</div>
+    <div>Fence length: {{ calc.fence_length }} m</div>
+    
+    <!-- Materials -->
+    {% if calc.material_costs.posts %}
+    <div>{{ calc.material_costs.posts.material }}: {{ calc.material_costs.posts.quantity }}</div>
+    {% else %}
+    <div>5inch posts: {{ calc.posts_required }}</div>
+    {% endif %}
+    <div>Wire rolls required: {{ calc.wire_rolls_required }}</div>
+    
+    <!-- Stay posts and triplex from material_costs -->
+    {% if calc.material_costs.stay_posts %}
+    <div>5 inch stay posts: {{ calc.material_costs.stay_posts.quantity }}</div>
+    {% endif %}
+    
+    {% if calc.material_costs.triplex %}
+    <div>Triplex: {{ calc.material_costs.triplex.quantity }}</div>
+    {% endif %}
+    
+    {% if calc.material_costs.strainers %}
+    <div>Strainers: {{ calc.material_costs.strainers.quantity }}</div>
+    {% endif %}
+    
+    {% if calc.material_costs.netting %}
+    <div>Netting rolls: {{ calc.material_costs.netting.quantity }}</div>
+    {% endif %}
+    
+    
+    <!-- Labor -->
+    <div>Labor hours: {{ calc.labor_hours }} @ ${{ calc.labor_rate_per_hour }}/h</div>
+    
+    <!-- Totals -->
+    <div>Material total: ${{ calc.total_material_cost }}</div>
+    <div>Total (excl. GST): ${{ calc.total_cost }}</div>
+  </div>
+  <div class="mt-4 space-x-3">
+    <a href="/export_pdf/{{ calc.id }}" class="text-primary-400 hover:text-primary-300 underline-offset-2 hover:underline">Download PDF</a>
+    <a href="/export_excel/{{ calc.id }}" class="text-primary-400 hover:text-primary-300 underline-offset-2 hover:underline">Download Excel</a>
+  </div>
+  </div>
+{% endblock %}

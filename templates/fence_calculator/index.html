@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div class="md:col-span-2 rounded-lg p-5 border border-slate-800/60 bg-slate-900/60 shadow-glow">
+    <h2 class="text-lg font-semibold mb-4 text-slate-100">Calculator</h2>
+    <form id="calc-form" class="space-y-3">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Netting</label>
+        <select id="netting" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Number of wires</label>
+        <input id="wire_count" type="number" min="1" max="20" step="1" value="2" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" />
+      </div>
+      <input type="hidden" id="fence_type" />
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Fence length (m)</label>
+        <input id="fence_length" type="number" step="0.01" min="0.01" max="50000" required class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="e.g. 500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Distance between posts (m)</label>
+        <input id="post_spacing" type="number" step="0.01" min="0.01" max="50" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="e.g. 8.0" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Top wire type</label>
+        <select id="top_wire_type" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2">
+          <option value="standard">Standard</option>
+          <option value="hot">Hot</option>
+          <option value="barb">Barb</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Labor rate (NZD/h, optional)</label>
+        <input id="labor_rate" type="number" step="0.01" min="0" max="1000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="{{ default_labor_rate }}" />
+      </div>
+      <div class="pt-2">
+        <button type="submit" class="bg-blue-600 text-white rounded px-4 py-2">Calculate</button>
+        <span id="calc-status" class="ml-2 text-sm text-gray-500"></span>
+      </div>
+    </form>
+    <div id="results" class="mt-6 hidden">
+      <h3 class="text-md font-semibold mb-2 text-slate-100">Results</h3>
+      <div class="space-y-1 text-sm text-slate-300" id="results-body"></div>
+      <div class="mt-4 space-x-3">
+        <a id="pdf-link" class="text-primary-400 hover:text-primary-300 underline-offset-2 hover:underline" target="_blank">Download PDF</a>
+        <a id="xlsx-link" class="text-primary-400 hover:text-primary-300 underline-offset-2 hover:underline" target="_blank">Download Excel</a>
+      </div>
+    </div>
+  </div>
+  <div class="rounded-lg p-5 border border-slate-800/60 bg-slate-900/60 shadow-glow">
+    <h2 class="text-lg font-semibold mb-4 text-slate-100">Recent calculations</h2>
+    <ul class="space-y-2 text-sm text-slate-300">
+      {% for c in recent_calcs %}
+        <li class="flex items-center justify-between">
+          <span>#{{ c.id }} — {{ c.fence_type }} ({{ c.fence_length }} m)</span>
+          <a class="text-primary-400 hover:text-primary-300 underline-offset-2 hover:underline" href="/calculation/{{ c.id }}">View</a>
+        </li>
+      {% empty %}
+        <li>No recent calculations.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+<script>
+async function loadFenceTypes() {
+  const res = await fetch('/api/fence-types');
+  const data = await res.json();
+  // Get the first active fence type as default (for material mapping)
+  window.__ftMap = {};
+  if (data.fence_types.length > 0) {
+    const first = data.fence_types[0];
+    document.getElementById('fence_type').value = first.id;
+    window.__ftMap[String(first.id)] = first;
+    document.getElementById('post_spacing').value = first.post_spacing;
+  }
+}
+
+// Add event listener for netting changes
+document.addEventListener('DOMContentLoaded', function() {
+  const nettingSelect = document.getElementById('netting');
+  nettingSelect.addEventListener('change', function() {
+    // When netting is selected, adjust wire count to 1 (netting counts as 1 wire)
+    // When netting is not selected, restore default wire count
+    if (this.value === 'yes') {
+      document.getElementById('wire_count').value = 1;
+    } else {
+      document.getElementById('wire_count').value = 2;
+    }
+  });
+});
+
+// Client-side validation functions
+function validateInput() {
+  const errors = [];
+  
+  // Validate fence length
+  const fenceLength = document.getElementById('fence_length').value;
+  if (!fenceLength) {
+    errors.push('Fence length is required');
+  } else {
+    const length = parseFloat(fenceLength);
+    if (isNaN(length) || length <= 0) {
+      errors.push('Fence length must be greater than 0');
+    } else if (length > 50000) {
+      errors.push('Fence length cannot exceed 50,000 meters');
+    }
+  }
+  
+  // Validate labor rate if provided
+  const laborRate = document.getElementById('labor_rate').value;
+  if (laborRate) {
+    const rate = parseFloat(laborRate);
+    if (isNaN(rate) || rate < 0) {
+      errors.push('Labor rate cannot be negative');
+    } else if (rate > 1000) {
+      errors.push('Labor rate cannot exceed $1,000/hour');
+    }
+  }
+  
+  // Validate post spacing if provided
+  const postSpacing = document.getElementById('post_spacing').value;
+  if (postSpacing) {
+    const spacing = parseFloat(postSpacing);
+    if (isNaN(spacing) || spacing <= 0) {
+      errors.push('Post spacing must be greater than 0');
+    } else if (spacing > 50) {
+      errors.push('Post spacing cannot exceed 50 meters');
+    }
+  }
+  
+  // Validate wire count if provided
+  const wireCount = document.getElementById('wire_count').value;
+  if (wireCount) {
+    const count = parseInt(wireCount);
+    if (isNaN(count) || count <= 0) {
+      errors.push('Wire count must be greater than 0');
+    } else if (count > 20) {
+      errors.push('Wire count cannot exceed 20');
+    }
+  }
+  
+  return errors;
+}
+
+async function doCalculate(evt) {
+  evt.preventDefault();
+  const status = document.getElementById('calc-status');
+  
+  // Client-side validation
+  const validationErrors = validateInput();
+  if (validationErrors.length > 0) {
+    alert('Please fix the following errors:\n\n' + validationErrors.join('\n'));
+    return;
+  }
+  
+  status.textContent = 'Calculating…';
+  try {
+    // Get CSRF token from the form or meta tag
+    let csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    if (!csrfToken) {
+      // Fallback: try to get from meta tag or cookie
+      csrfToken = document.querySelector('meta[name=csrf-token]')?.getAttribute('content');
+    }
+    
+    // Create FormData instead of JSON to ensure CSRF works properly
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('netting', document.getElementById('netting').value);
+    formData.append('fence_length', document.getElementById('fence_length').value);
+    
+    const laborRate = document.getElementById('labor_rate').value;
+    if (laborRate) formData.append('labor_rate', laborRate);
+    
+    const topWireType = document.getElementById('top_wire_type').value;
+    if (topWireType) formData.append('top_wire_type', topWireType);
+    
+    const postSpacing = document.getElementById('post_spacing').value;
+    if (postSpacing) formData.append('post_spacing', postSpacing);
+    
+    const wireCount = document.getElementById('wire_count').value;
+    if (wireCount) formData.append('wire_count', wireCount);
+    
+    const res = await fetch('/calculate/', {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('Server response:', data);
+      throw new Error(data.error || `Server error: ${res.status}`);
+    }
+    const b = document.getElementById('results-body');
+    b.innerHTML = '';
+    const rows = [
+      // Materials - show posts from material_costs if available, otherwise use posts_required
+      ['Wire rolls required', data.wire_rolls_required],
+    ];
+    
+    // Add posts from material_costs (will show as "5inch posts")
+    if (data.material_costs && data.material_costs.posts) {
+      rows.unshift([data.material_costs.posts.material, data.material_costs.posts.quantity]);
+    } else {
+      rows.unshift(['5inch posts', data.posts_required]);
+    }
+    
+    // Add stay posts if available
+    if (data.material_costs && data.material_costs.stay_posts) {
+      rows.push(['5 inch stay posts', data.material_costs.stay_posts.quantity]);
+    }
+    
+    // Add triplex if available
+    if (data.material_costs && data.material_costs.triplex) {
+      rows.push(['Triplex', data.material_costs.triplex.quantity]);
+    }
+    
+    // Add strainers if available
+    if (data.material_costs && data.material_costs.strainers) {
+      rows.push(['Strainers', data.material_costs.strainers.quantity]);
+    }
+    
+    // Add netting if available
+    if (data.material_costs && data.material_costs.netting) {
+      rows.push(['Netting rolls', data.material_costs.netting.quantity]);
+    }
+    
+    
+    // Add insulators if available
+    if (data.insulator_counts && (data.insulator_counts.bullnose || data.insulator_counts.claw)) {
+      if (data.insulator_counts.bullnose) {
+        rows.push(['Insulators (bullnose)', data.insulator_counts.bullnose]);
+      }
+      if (data.insulator_counts.claw) {
+        rows.push(['Insulators (claw)', data.insulator_counts.claw]);
+      }
+    }
+    
+    // Labor
+    rows.push(['Labor hours', data.labor_hours]);
+    rows.push(['Labor cost', `$${data.labor_cost.toFixed(2)}`]);
+    
+    // Totals
+    rows.push(['Material total', `$${data.total_material_cost.toFixed(2)}`]);
+    rows.push(['Total (excl. GST)', `$${data.total_cost.toFixed(2)}`]);
+    rows.forEach(([k,v]) => {
+      const d = document.createElement('div');
+      d.textContent = `${k}: ${v}`;
+      b.appendChild(d);
+    });
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('pdf-link').href = `/export_pdf/${data.calculation_id}`;
+    document.getElementById('xlsx-link').href = `/export_excel/${data.calculation_id}`;
+  } catch (e) {
+    console.error('Calculation error:', e);
+    alert(`Calculation failed: ${e.message}`);
+  } finally {
+    status.textContent = '';
+  }
+}
+
+document.getElementById('calc-form').addEventListener('submit', doCalculate);
+// No visible fence type selector anymore; we use first active type for defaults
+loadFenceTypes();
+</script>
+{% endblock %}
