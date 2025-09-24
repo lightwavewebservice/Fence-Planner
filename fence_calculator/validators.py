@@ -228,6 +228,21 @@ def validate_fence_calculation_input(data: dict) -> dict:
     else:
         validated['wire_count_override'] = None
     
+    # Validate optional hot wire count (only if top wire type is hot)
+    hot_wire_count = data.get('hot_wire_count')
+    if validated.get('top_wire_type') == 'hot' and hot_wire_count not in (None, ""):
+        hot_wires = validate_positive_integer(
+            hot_wire_count,
+            'Hot wire count',
+            max_value=20  # 20 wires max
+        )
+        total_wires = validated.get('wire_count_override')
+        if total_wires and hot_wires > total_wires:
+            raise ValidationError(f'Hot wire count ({hot_wires}) cannot exceed total wire count ({total_wires})')
+        validated['hot_wire_count'] = hot_wires
+    else:
+        validated['hot_wire_count'] = None
+    
     # Validate price overrides
     price_overrides = data.get('price_overrides', {})
     if not isinstance(price_overrides, dict):

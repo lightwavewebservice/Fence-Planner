@@ -33,6 +33,32 @@
           <option value="barb">Barb</option>
         </select>
       </div>
+      <div id="hot_wire_count_container" class="hidden">
+        <label class="block text-sm font-medium mb-1 text-slate-300">Number of hot wires</label>
+        <select id="hot_wire_count" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17">17</option>
+          <option value="18">18</option>
+          <option value="19">19</option>
+          <option value="20">20</option>
+        </select>
+        <span class="text-xs text-slate-400">How many wires should be hot (including the top wire)</span>
+      </div>
       <div>
         <label class="block text-sm font-medium mb-1 text-slate-300">Labor rate (NZD/h, optional)</label>
         <input id="labor_rate" type="number" step="0.01" min="0" max="1000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="{{ default_labor_rate }}" />
@@ -82,13 +108,52 @@ async function loadFenceTypes() {
 // Add event listener for netting changes
 document.addEventListener('DOMContentLoaded', function() {
   const nettingSelect = document.getElementById('netting');
+  const topWireTypeSelect = document.getElementById('top_wire_type');
+  const hotWireCountContainer = document.getElementById('hot_wire_count_container');
+  const hotWireCountSelect = document.getElementById('hot_wire_count');
+  const wireCountInput = document.getElementById('wire_count');
+
+  // Netting toggle adjusts total wire count
   nettingSelect.addEventListener('change', function() {
     // When netting is selected, adjust wire count to 1 (netting counts as 1 wire)
     // When netting is not selected, restore default wire count
     if (this.value === 'yes') {
-      document.getElementById('wire_count').value = 1;
+      wireCountInput.value = 1;
     } else {
-      document.getElementById('wire_count').value = 2;
+      wireCountInput.value = 2;
+    }
+    // Ensure hot wire count does not exceed total wires
+    if (topWireTypeSelect.value === 'hot') {
+      const total = parseInt(wireCountInput.value) || 1;
+      if ((parseInt(hotWireCountSelect.value) || 1) > total) {
+        hotWireCountSelect.value = String(total);
+      }
+    }
+  });
+
+  // Show/hide hot wire dropdown when 'Hot' selected
+  topWireTypeSelect.addEventListener('change', function() {
+    if (this.value === 'hot') {
+      hotWireCountContainer.classList.remove('hidden');
+      // Default to 1 if empty
+      if (!hotWireCountSelect.value) hotWireCountSelect.value = '1';
+      // Cap to total wires
+      const total = parseInt(wireCountInput.value) || 1;
+      if ((parseInt(hotWireCountSelect.value) || 1) > total) {
+        hotWireCountSelect.value = String(total);
+      }
+    } else {
+      hotWireCountContainer.classList.add('hidden');
+    }
+  });
+
+  // Keep hot wire count <= total wires
+  wireCountInput.addEventListener('change', function() {
+    const total = parseInt(wireCountInput.value) || 1;
+    if (topWireTypeSelect.value === 'hot') {
+      if ((parseInt(hotWireCountSelect.value) || 1) > total) {
+        hotWireCountSelect.value = String(total);
+      }
     }
   });
 });
@@ -118,6 +183,19 @@ function validateInput() {
       errors.push('Labor rate cannot be negative');
     } else if (rate > 1000) {
       errors.push('Labor rate cannot exceed $1,000/hour');
+    }
+  }
+  
+  // If hot wire type, validate hot wire count
+  const topWireType = document.getElementById('top_wire_type').value;
+  if (topWireType === 'hot') {
+    const totalWires = parseInt(document.getElementById('wire_count').value) || 1;
+    const hotWires = parseInt(document.getElementById('hot_wire_count').value) || 1;
+    if (hotWires < 1) {
+      errors.push('Number of hot wires must be at least 1');
+    }
+    if (hotWires > totalWires) {
+      errors.push(`Number of hot wires cannot exceed total wire count (${totalWires})`);
     }
   }
   
@@ -177,6 +255,10 @@ async function doCalculate(evt) {
     
     const topWireType = document.getElementById('top_wire_type').value;
     if (topWireType) formData.append('top_wire_type', topWireType);
+    if (topWireType === 'hot') {
+      const hotWireCount = document.getElementById('hot_wire_count').value;
+      if (hotWireCount) formData.append('hot_wire_count', hotWireCount);
+    }
     
     const postSpacing = document.getElementById('post_spacing').value;
     if (postSpacing) formData.append('post_spacing', postSpacing);

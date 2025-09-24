@@ -27,6 +27,7 @@ def calculate_fence_requirements(
     post_spacing_override: Decimal | None = None,
     terrain: str | None = None,  # 'flat' | 'broken' (undulating/broken)
     wire_count_override: int | None = None,
+    hot_wire_count: int | None = None,  # number of hot wires when top wire is 'hot'
 ) -> Dict[str, Any]:
     price_overrides = price_overrides or {}
 
@@ -41,7 +42,16 @@ def calculate_fence_requirements(
 
     # Compute wire lengths/rolls considering the top wire selection
     total_wires = int(wire_count_override) if wire_count_override and int(wire_count_override) > 0 else int(fence_type.wire_count)
-    special_wires = 1 if twt in ('hot', 'barb') and total_wires > 0 else 0
+    # Determine special wires based on type and requested hot wire count
+    if twt == 'hot' and hot_wire_count and total_wires > 0:
+        special_wires = min(int(hot_wire_count), total_wires)
+    elif twt == 'barb' and total_wires > 0:
+        special_wires = 1
+    elif twt == 'hot' and total_wires > 0:
+        # Default to 1 hot wire if not specified
+        special_wires = 1
+    else:
+        special_wires = 0
     standard_wires = max(total_wires - special_wires, 0)
 
     standard_wire_len_m = quantize_2(Decimal(standard_wires) * fence_length)
@@ -149,19 +159,29 @@ def calculate_fence_requirements(
             'cost': float(quantize_2(p * netting_rolls)),
         }
 
-    # Insulators for hot top wire
+    # Insulators for hot wires
     insulator_counts: Dict[str, int] = {}
     if twt == 'hot':
-        # Bullnose at each end (2 total), claw on each intermediate post (exclude first/last)
-        bullnose_qty = 2 if posts_required >= 2 else max(posts_required, 0)
-        claw_qty = max(posts_required - 2, 0)
-        insulator_counts = {'bullnose': bullnose_qty, 'claw': claw_qty}
+        # Use number of hot wires determined above
+        num_hot_wires = special_wires
+        # Bullnose at each end per hot wire (2 per wire), claw on each intermediate post per hot wire
+        bullnose_per_wire = 2 if posts_required >= 2 else max(posts_required, 0)
+        claw_per_wire = max(posts_required - 2, 0)
+        bullnose_qty = bullnose_per_wire * num_hot_wires
+        claw_qty = claw_per_wire * num_hot_wires
+        insulator_counts = {'bullnose': bullnose_qty, 'claw': claw_qty, 'hot_wires': num_hot_wires}
 
         bullnose_mat = Material.objects.filter(name='Bullnose Insulator', is_active=True).first()
         if bullnose_mat and bullnose_qty > 0:
             p = eff_price(bullnose_mat)
+            # Optional: label to reflect multiple hot wires
+            material_label = bullnose_mat.name
+            if num_hot_wires > 1:
+                material_label = f"{bullnose_mat.name} (for {num_hot_wires} hot wires)"
+            elif num_hot_wires == 1:
+                material_label = f"{bullnose_mat.name} (for hot wire)"
             material_costs['insulators_bullnose'] = {
-                'material': bullnose_mat.name,
+                'material': material_label,
                 'unit_price': float(quantize_2(p)),
                 'quantity': bullnose_qty,
                 'cost': float(quantize_2(p * Decimal(bullnose_qty))),
@@ -170,8 +190,13 @@ def calculate_fence_requirements(
         claw_mat = Material.objects.filter(name='Claw Insulator', is_active=True).first()
         if claw_mat and claw_qty > 0:
             p = eff_price(claw_mat)
+            material_label = claw_mat.name
+            if num_hot_wires > 1:
+                material_label = f"{claw_mat.name} (for {num_hot_wires} hot wires)"
+            elif num_hot_wires == 1:
+                material_label = f"{claw_mat.name} (for hot wire)"
             material_costs['insulators_claw'] = {
-                'material': claw_mat.name,
+                'material': material_label,
                 'unit_price': float(quantize_2(p)),
                 'quantity': claw_qty,
                 'cost': float(quantize_2(p * Decimal(claw_qty))),
