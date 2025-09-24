@@ -63,11 +63,7 @@
         <label class="block text-sm font-medium mb-1 text-slate-300">Labor rate (NZD/h, optional)</label>
         <input id="labor_rate" type="number" step="0.01" min="0" max="1000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="{{ default_labor_rate }}" />
       </div>
-      <div>
-        <label class="block text-sm font-medium mb-1 text-slate-300">Staples per box (optional)</label>
-        <input id="staples_per_box" type="number" step="1" min="1" max="100000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="2000" />
-        <span class="text-xs text-slate-400">Default is 2,000 staples per box at $183.99</span>
-      </div>
+      <!-- Staples per box input removed from UI; backend uses settings defaults -->
       <div class="pt-2">
         <button type="submit" class="bg-blue-600 text-white rounded px-4 py-2">Calculate</button>
         <span id="calc-status" class="ml-2 text-sm text-gray-500"></span>
@@ -191,16 +187,7 @@ function validateInput() {
     }
   }
   
-  // Validate staples per box if provided
-  const spbVal = document.getElementById('staples_per_box').value;
-  if (spbVal) {
-    const spb = parseInt(spbVal);
-    if (isNaN(spb) || spb <= 0) {
-      errors.push('Staples per box must be a positive integer');
-    } else if (spb > 100000) {
-      errors.push('Staples per box is unreasonably large');
-    }
-  }
+  // Staples per box validation removed; defaults are applied server-side
   
   // If hot wire type, validate hot wire count
   const topWireType = document.getElementById('top_wire_type').value;
@@ -282,8 +269,7 @@ async function doCalculate(evt) {
     const wireCount = document.getElementById('wire_count').value;
     if (wireCount) formData.append('wire_count', wireCount);
     
-    const spbSubmit = document.getElementById('staples_per_box').value;
-    if (spbSubmit) formData.append('staples_per_box', spbSubmit);
+    // Staples per box submission removed; backend will use default settings
     
     const res = await fetch('/calculate/', {
       method: 'POST',
