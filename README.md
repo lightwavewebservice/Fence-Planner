@@ -62,6 +62,9 @@ Run unit and integration tests:
 python manage.py test
 ```
 
+## Disclaimer
+All calculations and material prices provided by this application are indicative only and may change. Prices are sourced from suppliers and are subject to market fluctuations, regional variations, and supplier updates. Always verify current prices and requirements with your local suppliers before making purchasing decisions. The developers assume no liability for any discrepancies or decisions made based on the outputs of this tool.
+
 ## Future work
 - Real supplier scraping adapters (e.g., Farmlands Invercargill) with retries and HTML fixtures
 - Periodic scraping via `django-crontab` or Celery using `ScrapingSettings.default_scrape_interval_hours`
