@@ -28,6 +28,7 @@ def calculate_fence_requirements(
     terrain: str | None = None,  # 'flat' | 'broken' (undulating/broken)
     wire_count_override: int | None = None,
     hot_wire_count: int | None = None,  # number of hot wires when top wire is 'hot'
+    staples_per_box: int | None = None,
 ) -> Dict[str, Any]:
     price_overrides = price_overrides or {}
 
@@ -159,6 +160,51 @@ def calculate_fence_requirements(
             'cost': float(quantize_2(p * netting_rolls)),
         }
 
+    # Staples (for non-hot wires and netting)
+    staple_counts: Dict[str, int] = {}
+    if getattr(settings, 'STAPLES_ENABLED', True):
+        # Wires that get staples: all wires unless hot wires are present, then only standard wires
+        stapled_wires = total_wires if twt != 'hot' else standard_wires
+        # Posts distribution
+        end_posts = 2 if posts_required >= 2 else posts_required
+        line_posts = max(posts_required - end_posts, 0)
+        # Per-post usage
+        per_line = int(getattr(settings, 'STAPLES_PER_WIRE_PER_LINE_POST', 1))
+        per_end = int(getattr(settings, 'STAPLES_PER_WIRE_PER_END_POST', 2))
+        per_net = int(getattr(settings, 'STAPLES_PER_POST_FOR_NETTING', 4))
+        # Counts
+        line_staples = line_posts * stapled_wires * per_line
+        end_staples = end_posts * stapled_wires * per_end
+        netting_staples = (posts_required * per_net) if fence_type.netting_material else 0
+        total_staples = int(line_staples + end_staples + netting_staples)
+        # Boxes
+        spb = int(staples_per_box) if (staples_per_box and int(staples_per_box) > 0) else int(getattr(settings, 'STAPLES_PER_BOX', 2000))
+        boxes = int((Decimal(total_staples) / Decimal(spb)).to_integral_value(rounding=ROUND_UP)) if spb > 0 else 0
+        staple_counts = {
+            'staples_per_box_used': spb,
+            'line_staples': line_staples,
+            'end_staples': end_staples,
+            'netting_staples': netting_staples,
+            'total_staples': total_staples,
+            'boxes': boxes,
+        }
+
+        # Material cost for staples
+        staples_mat = Material.objects.filter(name__iexact=getattr(settings, 'STAPLES_MATERIAL_NAME', 'U Staples'), is_active=True).first()
+        if staples_mat:
+            p = eff_price(staples_mat)
+            staples_name = staples_mat.name
+        else:
+            p = Decimal(str(getattr(settings, 'STAPLES_DEFAULT_PRICE', 0)))
+            staples_name = getattr(settings, 'STAPLES_MATERIAL_NAME', 'U Staples')
+        if boxes > 0:
+            material_costs['staples'] = {
+                'material': staples_name,
+                'unit_price': float(quantize_2(p)),
+                'quantity': boxes,
+                'cost': float(quantize_2(p * Decimal(boxes))),
+            }
+
     # Insulators for hot wires
     insulator_counts: Dict[str, int] = {}
     if twt == 'hot':
@@ -274,6 +320,7 @@ def calculate_fence_requirements(
         'total_cost': float(total_cost),
         'insulator_counts': insulator_counts,
         'strainer_recommendation': recommended_strainers_info,
+        'staple_counts': staple_counts,
     }
 
 

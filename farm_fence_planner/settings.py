@@ -78,3 +78,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LABOR_RATE_PER_HOUR = 55.0
 WIRE_ROLL_LENGTH = 500
 BUILD_RATE_METERS_PER_HOUR = 200
+
+# Staples configuration
+# Name should match a Material in the DB if available; otherwise defaults will be used.
+STAPLES_ENABLED = True
+STAPLES_MATERIAL_NAME = 'U Staples (Box of 2000)'
+STAPLES_PER_BOX = 2000
+STAPLES_DEFAULT_PRICE = 183.99  # NZD per box
+# Usage defaults
+STAPLES_PER_WIRE_PER_LINE_POST = 1  # for standard/barb wires on line posts
+STAPLES_PER_WIRE_PER_END_POST = 2   # for standard/barb wires on end posts
+STAPLES_PER_POST_FOR_NETTING = 4    # additional staples per post when netting is present

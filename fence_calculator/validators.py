@@ -243,6 +243,17 @@ def validate_fence_calculation_input(data: dict) -> dict:
     else:
         validated['hot_wire_count'] = None
     
+    # Validate optional staples per box
+    staples_per_box = data.get('staples_per_box')
+    if staples_per_box not in (None, ""):
+        validated['staples_per_box'] = validate_positive_integer(
+            staples_per_box,
+            'Staples per box',
+            max_value=100000
+        )
+    else:
+        validated['staples_per_box'] = None
+    
     # Validate price overrides
     price_overrides = data.get('price_overrides', {})
     if not isinstance(price_overrides, dict):

@@ -82,6 +82,7 @@ def calculate(request: HttpRequest) -> JsonResponse:
         post_spacing_override=validated_data['post_spacing_override'],
         wire_count_override=validated_data['wire_count_override'],
         hot_wire_count=validated_data.get('hot_wire_count'),
+        staples_per_box=validated_data.get('staples_per_box'),
     )
 
     calc = FenceCalculation.objects.create(
