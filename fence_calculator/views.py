@@ -139,7 +139,7 @@ def export_excel(request: HttpRequest, pk: int) -> HttpResponse:
 # ---- APIs ---- #
 
 def api_fence_types(request: HttpRequest) -> JsonResponse:
-    items = list(FenceType.objects.filter(is_active=True).values('id', 'name', 'display_name', 'post_spacing', 'wire_count', 'requires_battens', 'batten_spacing'))
+    items = list(FenceType.objects.filter(is_active=True).values('id', 'name', 'display_name', 'post_spacing', 'wire_count'))
     return JsonResponse({'fence_types': items})
 
 
