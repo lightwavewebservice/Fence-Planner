@@ -8,6 +8,9 @@ Django 4.x web application to calculate farm fence material requirements and cos
 - Exports: PDF (ReportLab) and Excel (openpyxl)
 - Settings tab to manage materials, price sources, auto-update toggle, and "Scrape Now" placeholder
 - Admin with actions and filters
+- Hot wire support: specify number of hot wires (1-20) when top wire type is "Hot"
+- Staples calculation: automatic staples for non-hot wires and netting, with configurable defaults
+- Build rate (m/hr): customizable fence building speed (default 20 m/hr) for labor hour calculation
 
 ## Tech
 - Django 4.x, SQLite (dev)
@@ -43,7 +46,15 @@ Open http://127.0.0.1:8000/ in your browser.
 - Constants in `farm_fence_planner/settings.py`:
   - `LABOR_RATE_PER_HOUR = 55.0`
   - `WIRE_ROLL_LENGTH = 500`
-  - `BUILD_RATE_METERS_PER_HOUR = 200`
+  - `BUILD_RATE_METERS_PER_HOUR = 20`
+  - Staples configuration:
+    - `STAPLES_ENABLED = True`
+    - `STAPLES_MATERIAL_NAME = 'U Staples (Box of 2000)'`
+    - `STAPLES_PER_BOX = 2000`
+    - `STAPLES_DEFAULT_PRICE = 183.99`
+    - `STAPLES_PER_WIRE_PER_LINE_POST = 1`
+    - `STAPLES_PER_WIRE_PER_END_POST = 2`
+    - `STAPLES_PER_POST_FOR_NETTING = 4`
 
 ## Tests
 Run unit and integration tests:
