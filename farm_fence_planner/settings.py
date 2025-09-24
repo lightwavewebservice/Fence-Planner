@@ -77,7 +77,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Application constants (NZD, excl. GST)
 LABOR_RATE_PER_HOUR = 55.0
 WIRE_ROLL_LENGTH = 500
-BUILD_RATE_METERS_PER_HOUR = 200
+BUILD_RATE_METERS_PER_HOUR = 20
 
 # Staples configuration
 # Name should match a Material in the DB if available; otherwise defaults will be used.

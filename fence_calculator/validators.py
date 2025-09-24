@@ -194,6 +194,17 @@ def validate_fence_calculation_input(data: dict) -> dict:
         )
     else:
         validated['labor_rate'] = None
+
+    # Validate optional build rate (m/hr)
+    build_rate = data.get('build_rate')
+    if build_rate not in (None, ""):
+        validated['build_rate'] = validate_positive_decimal(
+            build_rate,
+            'Build rate',
+            max_value=Decimal('1000')  # 1000 m/hour max
+        )
+    else:
+        validated['build_rate'] = None
     
     # Validate optional top wire type
     top_wire_type = data.get('top_wire_type')

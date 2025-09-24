@@ -26,6 +26,7 @@ def index(request: HttpRequest) -> HttpResponse:
         'fence_types': fence_types,
         'recent_calcs': recent_calcs,
         'default_labor_rate': settings.LABOR_RATE_PER_HOUR,
+        'default_build_rate': settings.BUILD_RATE_METERS_PER_HOUR,
     })
 
 
@@ -77,6 +78,7 @@ def calculate(request: HttpRequest) -> JsonResponse:
         fence_type=fence_type,
         fence_length=validated_data['fence_length'],
         labor_rate=validated_data['labor_rate'],
+        build_rate=validated_data.get('build_rate'),
         price_overrides=validated_data['price_overrides'],
         top_wire_type=validated_data['top_wire_type'],
         post_spacing_override=validated_data['post_spacing_override'],

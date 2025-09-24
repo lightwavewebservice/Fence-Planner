@@ -20,6 +20,7 @@ def calculate_fence_requirements(
     fence_type: FenceType,
     fence_length: Decimal,
     labor_rate: Decimal | None = None,
+    build_rate: Decimal | None = None,
     price_overrides: Dict[str, Decimal] | None = None,
     *,
     top_wire_type: str | None = None,  # 'standard' | 'hot' | 'barb'
@@ -88,7 +89,8 @@ def calculate_fence_requirements(
 
     # Labor
     lr = Decimal(str(labor_rate)) if labor_rate is not None else Decimal(str(settings.LABOR_RATE_PER_HOUR))
-    labor_hours = quantize_2(fence_length / Decimal(str(settings.BUILD_RATE_METERS_PER_HOUR)))
+    br = Decimal(str(build_rate)) if build_rate is not None else Decimal(str(settings.BUILD_RATE_METERS_PER_HOUR))
+    labor_hours = quantize_2(fence_length / br)
     labor_cost = quantize_2(labor_hours * lr)
 
     # Material prices helper
@@ -314,6 +316,7 @@ def calculate_fence_requirements(
         'wire_rolls_required': float(wire_rolls_required),
         'labor_hours': float(labor_hours),
         'labor_rate_per_hour': float(lr),
+        'build_rate_per_hour': float(br),
         'labor_cost': float(labor_cost),
         'material_costs': material_costs,
         'total_material_cost': float(total_material_cost),

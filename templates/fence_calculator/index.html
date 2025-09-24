@@ -63,6 +63,11 @@
         <label class="block text-sm font-medium mb-1 text-slate-300">Labor rate (NZD/h, optional)</label>
         <input id="labor_rate" type="number" step="0.01" min="0" max="1000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="{{ default_labor_rate }}" />
       </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Build rate (m/hr, optional)</label>
+        <input id="build_rate" type="number" step="0.01" min="1" max="1000" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" placeholder="{{ default_build_rate }}" />
+        <span class="text-xs text-slate-400">Meters of fence built per hour</span>
+      </div>
       <!-- Staples per box input removed from UI; backend uses settings defaults -->
       <div class="pt-2">
         <button type="submit" class="bg-blue-600 text-white rounded px-4 py-2">Calculate</button>
@@ -189,6 +194,17 @@ function validateInput() {
   
   // Staples per box validation removed; defaults are applied server-side
   
+  // Validate build rate if provided
+  const buildRate = document.getElementById('build_rate').value;
+  if (buildRate) {
+    const br = parseFloat(buildRate);
+    if (isNaN(br) || br <= 0) {
+      errors.push('Build rate must be greater than 0');
+    } else if (br > 1000) {
+      errors.push('Build rate cannot exceed 1000 m/hour');
+    }
+  }
+  
   // If hot wire type, validate hot wire count
   const topWireType = document.getElementById('top_wire_type').value;
   if (topWireType === 'hot') {
@@ -255,6 +271,8 @@ async function doCalculate(evt) {
     
     const laborRate = document.getElementById('labor_rate').value;
     if (laborRate) formData.append('labor_rate', laborRate);
+    const buildRateSubmit = document.getElementById('build_rate').value;
+    if (buildRateSubmit) formData.append('build_rate', buildRateSubmit);
     
     const topWireType = document.getElementById('top_wire_type').value;
     if (topWireType) formData.append('top_wire_type', topWireType);
@@ -334,6 +352,9 @@ async function doCalculate(evt) {
     }
     
     // Labor
+    if (data.build_rate_per_hour !== undefined) {
+      rows.push(['Build rate (m/hr)', data.build_rate_per_hour]);
+    }
     rows.push(['Labor hours', data.labor_hours]);
     rows.push(['Labor cost', `$${data.labor_cost.toFixed(2)}`]);
     
