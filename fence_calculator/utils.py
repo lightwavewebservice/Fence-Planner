@@ -1,6 +1,6 @@
 from __future__ import annotations
 from decimal import Decimal, ROUND_UP
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from django.conf import settings
 from .models import FenceType, Material, FenceCalculation
 from django.utils import timezone
@@ -30,6 +30,8 @@ def calculate_fence_requirements(
     wire_count_override: int | None = None,
     hot_wire_count: int | None = None,  # number of hot wires when top wire is 'hot'
     staples_per_box: int | None = None,
+    netting_type: str = 'none',
+    electric_outrigger: bool = False,
 ) -> Dict[str, Any]:
     price_overrides = price_overrides or {}
 
@@ -37,13 +39,28 @@ def calculate_fence_requirements(
     spacing = post_spacing_override if post_spacing_override else fence_type.post_spacing
     posts_required = ceil_div(fence_length, spacing) + 1
 
+    netting_type = (netting_type or 'none').lower()
+    if netting_type not in {'none', 'sheep', 'deer'}:
+        netting_type = 'none'
+
+    netting_height_cm: Optional[Decimal]
+    if netting_type == 'deer':
+        netting_height_cm = Decimal('200')
+    elif netting_type == 'sheep':
+        netting_height_cm = Decimal('120')
+    else:
+        netting_height_cm = None
+
     # Normalize selection
     twt = (top_wire_type or 'standard').lower()
     if twt not in ('standard', 'hot', 'barb'):
         twt = 'standard'
 
     # Compute wire lengths/rolls considering the top wire selection
-    total_wires = int(wire_count_override) if wire_count_override and int(wire_count_override) > 0 else int(fence_type.wire_count)
+    if wire_count_override is not None:
+        total_wires = max(int(wire_count_override), 0)
+    else:
+        total_wires = int(fence_type.wire_count or 0)
     # Determine special wires based on type and requested hot wire count
     if twt == 'hot' and hot_wire_count and total_wires > 0:
         special_wires = min(int(hot_wire_count), total_wires)
@@ -108,7 +125,7 @@ def calculate_fence_requirements(
     if fence_type.post_material:
         p = eff_price(fence_type.post_material)
         material_costs['posts'] = {
-            'material': '5inch posts',  # Always show as "5inch posts" regardless of material name
+            'material': fence_type.post_material.name,
             'unit_price': float(quantize_2(p)),
             'quantity': posts_required,
             'cost': float(quantize_2(p * Decimal(posts_required))),
@@ -150,17 +167,19 @@ def calculate_fence_requirements(
 
 
     # Netting (if configured) — calculate based on fence length and roll length
+    netting_rolls_required: Decimal = Decimal('0')
     if fence_type.netting_material:
         p = eff_price(fence_type.netting_material)
-        # Calculate netting rolls needed based on fence length and roll length
-        netting_roll_length = fence_type.netting_material.roll_length or Decimal('50')  # default 50m if not set
-        netting_rolls = (fence_length / netting_roll_length).to_integral_value(rounding=ROUND_UP)
-        material_costs['netting'] = {
-            'material': fence_type.netting_material.name,
-            'unit_price': float(quantize_2(p)),
-            'quantity': float(netting_rolls),
-            'cost': float(quantize_2(p * netting_rolls)),
-        }
+        netting_roll_length = fence_type.netting_material.roll_length or Decimal('50')
+        netting_roll_length = Decimal(str(netting_roll_length))
+        netting_rolls_required = Decimal(ceil_div(fence_length, netting_roll_length))
+        if netting_rolls_required > 0:
+            material_costs['netting'] = {
+                'material': fence_type.netting_material.name,
+                'unit_price': float(quantize_2(p)),
+                'quantity': float(netting_rolls_required),
+                'cost': float(quantize_2(p * netting_rolls_required)),
+            }
 
     # Staples (for non-hot wires and netting)
     staple_counts: Dict[str, int] = {}
@@ -251,8 +270,10 @@ def calculate_fence_requirements(
             }
 
     # Strainers - 1 per 100m of fence length (same as stay posts)
-    interval_m = Decimal('100')
+    interval_m = Decimal('50') if netting_type == 'deer' else Decimal('100')
     total_recommended_strainers = int((fence_length / interval_m).to_integral_value(rounding=ROUND_UP))
+    if fence_length > 0:
+        total_recommended_strainers = max(total_recommended_strainers, 2)
     # For backward compatibility, calculate intermediate strainers
     additional_strainers = total_recommended_strainers - 2
     if additional_strainers < 0:
@@ -278,9 +299,13 @@ def calculate_fence_requirements(
             }
 
     # Stay posts (strainers) - 1 per 100m of fence length
-    stay_posts_mat = Material.objects.filter(name='5 inch stay posts', is_active=True).first()
+    stay_posts_mat = Material.objects.filter(name__iexact='5 inch stay posts', is_active=True).first()
+    if netting_type == 'deer':
+        stay_posts_mat = Material.objects.filter(name__iexact='Deer Posts', is_active=True).first() or stay_posts_mat
+    stay_interval = Decimal('50') if netting_type == 'deer' else Decimal('100')
     if stay_posts_mat and fence_length > 0:
-        stay_posts_qty = int((fence_length / Decimal('100')).to_integral_value(rounding=ROUND_UP))
+        stay_posts_qty = int((fence_length / stay_interval).to_integral_value(rounding=ROUND_UP))
+        stay_posts_qty = max(stay_posts_qty, 2)
         p = eff_price(stay_posts_mat)
         material_costs['stay_posts'] = {
             'material': stay_posts_mat.name,
@@ -308,6 +333,49 @@ def calculate_fence_requirements(
 
     total_cost = quantize_2(total_material_cost + labor_cost)
 
+    # Optional electric outrigger components
+    outrigger_details: Dict[str, Any] = {}
+    if electric_outrigger:
+        outrigger_wire_mat = Material.objects.filter(name__iexact='Electric Outrigger Wire', is_active=True).first()
+        if not outrigger_wire_mat:
+            outrigger_wire_mat = fence_type.wire_material
+
+        if outrigger_wire_mat:
+            roll_len = get_roll_length(outrigger_wire_mat)
+            outrigger_rolls = Decimal(ceil_div(fence_length, roll_len))
+            p = eff_price(outrigger_wire_mat)
+            material_costs['outrigger_wire'] = {
+                'material': outrigger_wire_mat.name,
+                'unit_price': float(quantize_2(p)),
+                'quantity': float(outrigger_rolls),
+                'cost': float(quantize_2(p * outrigger_rolls)),
+            }
+            outrigger_details['wire_rolls'] = float(outrigger_rolls)
+
+        insulator_mat = Material.objects.filter(name__iexact='Outrigger Insulator', is_active=True).first()
+        if insulator_mat:
+            insulator_qty = posts_required
+            p = eff_price(insulator_mat)
+            material_costs['outrigger_insulators'] = {
+                'material': insulator_mat.name,
+                'unit_price': float(quantize_2(p)),
+                'quantity': insulator_qty,
+                'cost': float(quantize_2(p * Decimal(insulator_qty))),
+            }
+            outrigger_details['insulators'] = insulator_qty
+
+        connector_mat = Material.objects.filter(name__iexact='Outrigger Connectors', is_active=True).first()
+        if connector_mat:
+            connector_qty = max(2, int(posts_required / 50) + 1)
+            p = eff_price(connector_mat)
+            material_costs['outrigger_connectors'] = {
+                'material': connector_mat.name,
+                'unit_price': float(quantize_2(p)),
+                'quantity': connector_qty,
+                'cost': float(quantize_2(p * Decimal(connector_qty))),
+            }
+            outrigger_details['connectors'] = connector_qty
+
     return {
         'posts_required': posts_required,
         'post_spacing_used': float(quantize_2(Decimal(spacing))),
@@ -324,6 +392,11 @@ def calculate_fence_requirements(
         'insulator_counts': insulator_counts,
         'strainer_recommendation': recommended_strainers_info,
         'staple_counts': staple_counts,
+        'netting_type': netting_type,
+        'netting_height_cm': float(netting_height_cm) if netting_height_cm else None,
+        'netting_rolls_required': float(netting_rolls_required),
+        'electric_outrigger': electric_outrigger,
+        'electric_outrigger_details': outrigger_details,
     }
 
 
@@ -390,8 +463,24 @@ def generate_pdf(calculation: FenceCalculation) -> bytes:
     c.drawString(30 * mm, height - 36 * mm, f"Fence Length: {calculation.fence_length} m")
     c.drawString(30 * mm, height - 42 * mm, f"Created: {timezone.localtime(calculation.created_at).strftime('%Y-%m-%d %H:%M')}")
 
+    meta_y = height - 50 * mm
+    c.setFont("Helvetica", 10)
+    if calculation.netting_type and calculation.netting_type != 'none':
+        netting_label = 'Deer' if calculation.netting_type == 'deer' else 'Sheep'
+        c.drawString(30 * mm, meta_y, f"Netting Type: {netting_label}")
+        meta_y -= 6 * mm
+        if calculation.netting_height_cm:
+            c.drawString(30 * mm, meta_y, f"Netting Height: {calculation.netting_height_cm} cm")
+            meta_y -= 6 * mm
+    if calculation.electric_outrigger:
+        c.drawString(30 * mm, meta_y, "Electric Outrigger: Yes")
+        meta_y -= 6 * mm
+    else:
+        c.drawString(30 * mm, meta_y, "Electric Outrigger: No")
+        meta_y -= 6 * mm
+
     # Materials table
-    y = height - 60 * mm
+    y = meta_y - 6 * mm
     c.setFont("Helvetica-Bold", 12)
     c.drawString(30 * mm, y, "Materials (NZD excl. GST)")
     y -= 6 * mm
@@ -446,6 +535,16 @@ def generate_excel(calculation: FenceCalculation) -> bytes:
     ws["A1"].font = Font(size=16, bold=True)
     ws.append(["Fence Length (m)", float(calculation.fence_length)])
     ws.append(["Created", timezone.localtime(calculation.created_at).strftime('%Y-%m-%d %H:%M')])
+
+    if calculation.netting_type and calculation.netting_type != 'none':
+        netting_label = 'Deer' if calculation.netting_type == 'deer' else 'Sheep'
+        ws.append(["Netting Type", netting_label])
+        if calculation.netting_height_cm:
+            ws.append(["Netting Height (cm)", float(calculation.netting_height_cm)])
+    else:
+        ws.append(["Netting Type", "None"])
+
+    ws.append(["Electric Outrigger", "Yes" if calculation.electric_outrigger else "No"])
     ws.append([])
 
     ws.append(["Item", "Unit Price (NZD)", "Qty", "Cost (NZD)"])

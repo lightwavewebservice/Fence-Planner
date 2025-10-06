@@ -43,68 +43,72 @@ def calculate(request: HttpRequest) -> JsonResponse:
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return JsonResponse({'error': 'Invalid JSON format'}, status=400)
         else:
-            # Handle form data (multipart/form-data or application/x-www-form-urlencoded)
             payload = request.POST
 
-        # Validate input using our validation utility
+        # Validate input
         try:
             validated_data = validate_fence_calculation_input(payload)
         except ValidationError as e:
             return JsonResponse({'error': str(e)}, status=400)
-        
-        # Select fence type based on netting option
-        netting = validated_data['netting']
-        if netting == 'yes':
-            fence_type = FenceType.objects.filter(name='deer', is_active=True).first()
-        else:
-            fence_type = FenceType.objects.filter(name='2_wire_electric', is_active=True).first()
-            
+
+        netting_type = validated_data['netting_type']
+
+        # Determine fence type to use based on netting selection
+        fence_type_lookup = {
+            'deer': 'deer',
+            'sheep': 'netting_hot',
+        }
+        fence_type_name = fence_type_lookup.get(netting_type, '2_wire_electric')
+        fence_type = FenceType.objects.filter(name=fence_type_name, is_active=True).first()
+
         if not fence_type:
             return JsonResponse({'error': 'No suitable fence type found'}, status=400)
-            
+
+        # Ensure session key exists for storing calculation history
+        if not request.session.session_key:
+            request.session.create()
+
+        results = calculate_fence_requirements(
+            fence_type=fence_type,
+            fence_length=validated_data['fence_length'],
+            labor_rate=validated_data['labor_rate'],
+            build_rate=validated_data.get('build_rate'),
+            price_overrides=validated_data['price_overrides'],
+            top_wire_type=validated_data['top_wire_type'],
+            post_spacing_override=validated_data['post_spacing_override'],
+            wire_count_override=validated_data['wire_count_override'],
+            hot_wire_count=validated_data.get('hot_wire_count'),
+            staples_per_box=validated_data.get('staples_per_box'),
+            netting_type=validated_data['netting_type'],
+            electric_outrigger=validated_data['electric_outrigger'],
+        )
+
+        calc = FenceCalculation.objects.create(
+            fence_type=fence_type,
+            fence_length=validated_data['fence_length'],
+            posts_required=results['posts_required'],
+            wire_length_meters=Decimal(str(results['wire_length_meters'])),
+            wire_rolls_required=Decimal(str(results['wire_rolls_required'])),
+            netting_type=results.get('netting_type', 'none'),
+            netting_height_cm=Decimal(str(results['netting_height_cm'])) if results.get('netting_height_cm') is not None else None,
+            electric_outrigger=results.get('electric_outrigger', False),
+            labor_hours=Decimal(str(results['labor_hours'])),
+            labor_rate_per_hour=Decimal(str(results['labor_rate_per_hour'])),
+            labor_cost=Decimal(str(results['labor_cost'])),
+            material_costs=results['material_costs'],
+            total_material_cost=Decimal(str(results['total_material_cost'])),
+            total_cost=Decimal(str(results['total_cost'])),
+            price_overrides=validated_data['price_overrides'],
+            user_session=request.session.session_key or '',
+        )
+
+        results['calculation_id'] = calc.pk
+        return JsonResponse(results)
+
     except Exception as e:
-        # Log unexpected errors for debugging
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error in calculate view: {e}", exc_info=True)
         return JsonResponse({'error': 'An unexpected error occurred'}, status=500)
-
-    # fence_type is already selected above based on netting option
-
-    # Ensure a session key exists
-    if not request.session.session_key:
-        request.session.create()
-
-    results = calculate_fence_requirements(
-        fence_type=fence_type,
-        fence_length=validated_data['fence_length'],
-        labor_rate=validated_data['labor_rate'],
-        build_rate=validated_data.get('build_rate'),
-        price_overrides=validated_data['price_overrides'],
-        top_wire_type=validated_data['top_wire_type'],
-        post_spacing_override=validated_data['post_spacing_override'],
-        wire_count_override=validated_data['wire_count_override'],
-        hot_wire_count=validated_data.get('hot_wire_count'),
-        staples_per_box=validated_data.get('staples_per_box'),
-    )
-
-    calc = FenceCalculation.objects.create(
-        fence_type=fence_type,
-        fence_length=validated_data['fence_length'],
-        posts_required=results['posts_required'],
-        wire_length_meters=Decimal(str(results['wire_length_meters'])),
-        wire_rolls_required=Decimal(str(results['wire_rolls_required'])),
-        labor_hours=Decimal(str(results['labor_hours'])),
-        labor_rate_per_hour=Decimal(str(results['labor_rate_per_hour'])),
-        labor_cost=Decimal(str(results['labor_cost'])),
-        material_costs=results['material_costs'],
-        total_material_cost=Decimal(str(results['total_material_cost'])),
-        total_cost=Decimal(str(results['total_cost'])),
-        price_overrides=validated_data['price_overrides'],
-        user_session=request.session.session_key or '',
-    )
-
-    results['calculation_id'] = calc.pk
-    return JsonResponse(results)
 
 
 def calculation_detail(request: HttpRequest, pk: int) -> HttpResponse:

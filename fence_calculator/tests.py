@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any, Dict
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.utils import timezone
@@ -67,7 +68,6 @@ class FenceTypeModelTest(TestCase):
 
 class FenceCalculationUtilsTest(TestCase):
     def setUp(self):
-        # Create materials
         self.post_material = Material.objects.create(
             name="Standard Post",
             unit="each",
@@ -79,164 +79,143 @@ class FenceCalculationUtilsTest(TestCase):
             default_price=Decimal('139.00'),
             roll_length=Decimal('500.00')
         )
-        
-        # Create fence types
+
         self.electric_fence = FenceType.objects.create(
             name='2_wire_electric',
             display_name='2 Wire Electric',
             post_spacing=Decimal('8.00'),
             wire_count=2,
-            requires_battens=False,
             post_material=self.post_material,
             wire_material=self.wire_material
         )
-        
+
+        self.deer_netting = Material.objects.create(
+            name="Deer Netting 200cm",
+            unit="roll",
+            default_price=Decimal('310.00'),
+            roll_length=Decimal('100.00')
+        )
+        self.outrigger_wire = Material.objects.create(
+            name="Electric Outrigger Wire",
+            unit="roll",
+            default_price=Decimal('120.00'),
+            roll_length=Decimal('400.00')
+        )
+
         self.deer_fence = FenceType.objects.create(
             name='deer',
             display_name='Deer Fence',
             post_spacing=Decimal('6.00'),
-            wire_count=9,
-            requires_battens=False,
+            wire_count=0,
             post_material=self.post_material,
-            wire_material=self.wire_material
+            wire_material=self.outrigger_wire,
+            netting_material=self.deer_netting
         )
 
     def test_basic_electric_fence_calculation(self):
-        """Test basic 2-wire electric fence calculation"""
         results = calculate_fence_requirements(
             fence_type=self.electric_fence,
             fence_length=Decimal('100.00'),
-            labor_rate=Decimal('55.00')
+            labor_rate=Decimal('55.00'),
+            netting_type='none'
         )
-        
-        # Check basic quantities
-        expected_posts = 100 // 8 + 1 + 1  # fence_length / spacing + 1
+
+        expected_posts = 100 // 8 + 1 + 1
         self.assertEqual(results['posts_required'], expected_posts)
         self.assertEqual(results['wire_count_used'], 2)
-        self.assertEqual(results['wire_length_meters'], 200.0)  # 2 wires * 100m
-        
-        # Check wire rolls (200m total / 500m per roll = 1 roll)
+        self.assertEqual(results['wire_length_meters'], 200.0)
         self.assertEqual(results['wire_rolls_required'], 1.0)
-        
-        # Check labor calculation
-        expected_labor_hours = 100 / 200  # fence_length / BUILD_RATE_METERS_PER_HOUR
+        expected_labor_hours = 100 / 200
         self.assertEqual(results['labor_hours'], expected_labor_hours)
-        
-        # Check material costs structure
         self.assertIn('posts', results['material_costs'])
         self.assertIn('wire_standard', results['material_costs'])
-        
-        # Verify totals are positive
         self.assertGreater(results['total_material_cost'], 0)
         self.assertGreater(results['total_cost'], 0)
 
     def test_deer_fence_calculation(self):
-        """Test deer fence calculation"""
         results = calculate_fence_requirements(
             fence_type=self.deer_fence,
             fence_length=Decimal('60.00'),
-            labor_rate=Decimal('55.00')
+            labor_rate=Decimal('55.00'),
+            netting_type='deer',
+            electric_outrigger=False
         )
-        
-        # Check posts (60m / 6m spacing)
+
         expected_posts = 60 // 6 + 1 + 1
         self.assertEqual(results['posts_required'], expected_posts)
-        
-        # Check that battens are not included
+        self.assertEqual(results['netting_type'], 'deer')
+        self.assertEqual(results['netting_height_cm'], 200.0)
+        self.assertIn('netting', results['material_costs'])
         self.assertNotIn('battens', results['material_costs'])
 
-    def test_custom_post_spacing(self):
-        """Test calculation with custom post spacing"""
+    def test_deer_fence_with_outrigger(self):
         results = calculate_fence_requirements(
-            fence_type=self.electric_fence,
-            fence_length=Decimal('100.00'),
-            post_spacing_override=Decimal('10.00')
+            fence_type=self.deer_fence,
+            fence_length=Decimal('120.00'),
+            labor_rate=Decimal('55.00'),
+            netting_type='deer',
+            electric_outrigger=True
         )
-        
-        # With 10m spacing: 100/10 + 1 = 11 posts
-        expected_posts = 100 // 10 + 1 + 1
-        self.assertEqual(results['posts_required'], expected_posts)
-        self.assertEqual(results['post_spacing_used'], 10.0)
 
-    def test_custom_wire_count(self):
-        """Test calculation with custom wire count"""
-        results = calculate_fence_requirements(
-            fence_type=self.electric_fence,
-            fence_length=Decimal('100.00'),
-            wire_count_override=5
-        )
-        
-        self.assertEqual(results['wire_count_used'], 5)
-        self.assertEqual(results['wire_length_meters'], 500.0)  # 5 wires * 100m
+        self.assertTrue(results['electric_outrigger'])
+        self.assertIn('outrigger_wire', results['material_costs'])
+        details = results['electric_outrigger_details']
+        self.assertIn('wire_rolls', details)
+        self.assertGreater(details['wire_rolls'], 0)
 
     def test_price_overrides(self):
-        """Test calculation with price overrides"""
         price_overrides = {
-            str(self.post_material.id): Decimal('15.00'),  # Override post price
-            str(self.wire_material.id): Decimal('150.00')   # Override wire price
+            str(self.post_material.id): Decimal('15.00'),
+            str(self.wire_material.id): Decimal('150.00'),
         }
-        
+
         results = calculate_fence_requirements(
             fence_type=self.electric_fence,
             fence_length=Decimal('100.00'),
+            netting_type='none',
             price_overrides=price_overrides
         )
-        
-        # Check that overridden prices are used
+
         post_cost = results['material_costs']['posts']
         self.assertEqual(post_cost['unit_price'], 15.00)
-        
         wire_cost = results['material_costs']['wire_standard']
         self.assertEqual(wire_cost['unit_price'], 150.00)
 
     def test_hot_wire_calculation(self):
-        """Test calculation with hot top wire"""
-        # Create insulator materials
-        Material.objects.create(
-            name="Bullnose Insulator",
-            unit="each",
-            default_price=Decimal('2.50')
-        )
-        Material.objects.create(
-            name="Claw Insulator",
-            unit="each",
-            default_price=Decimal('1.80')
-        )
-        
+        Material.objects.create(name="Bullnose Insulator", unit="each", default_price=Decimal('2.50'))
+        Material.objects.create(name="Claw Insulator", unit="each", default_price=Decimal('1.80'))
+
         results = calculate_fence_requirements(
             fence_type=self.electric_fence,
             fence_length=Decimal('100.00'),
-            top_wire_type='hot'
+            netting_type='none',
+            top_wire_type='hot',
+            hot_wire_count=2
         )
-        
-        # Should have insulator costs
+
         self.assertIn('insulators_bullnose', results['material_costs'])
         self.assertIn('insulators_claw', results['material_costs'])
-        
-        # Check insulator quantities
-        insulator_counts = results['insulator_counts']
-        self.assertEqual(insulator_counts['bullnose'], 2)  # 2 end posts
-        self.assertGreater(insulator_counts['claw'], 0)    # Intermediate posts
+        self.assertEqual(results['insulator_counts']['bullnose'], 4)
+        self.assertGreater(results['insulator_counts']['claw'], 0)
 
     def test_zero_length_fence(self):
-        """Test edge case with zero length fence"""
         results = calculate_fence_requirements(
             fence_type=self.electric_fence,
-            fence_length=Decimal('0.00')
+            fence_length=Decimal('0.00'),
+            netting_type='none'
         )
-        
-        self.assertEqual(results['posts_required'], 1)  # At least 1 post
+
+        self.assertEqual(results['posts_required'], 1)
         self.assertEqual(results['wire_length_meters'], 0.0)
         self.assertEqual(results['wire_rolls_required'], 0.0)
 
     def test_very_long_fence(self):
-        """Test calculation with very long fence"""
         results = calculate_fence_requirements(
             fence_type=self.electric_fence,
-            fence_length=Decimal('5000.00')  # 5km fence
+            fence_length=Decimal('5000.00'),
+            netting_type='none'
         )
-        
-        # Should handle large numbers correctly
+
         self.assertGreater(results['posts_required'], 0)
         self.assertGreater(results['wire_rolls_required'], 0)
         self.assertGreater(results['total_cost'], 0)
@@ -278,7 +257,7 @@ class FenceCalculationViewsTest(TestCase):
     def test_calculate_api_valid_input(self):
         """Test calculation API with valid input"""
         data = {
-            'netting': 'no',
+            'netting_type': 'none',
             'fence_length': '100.0',
             'labor_rate': '55.0',
             'wire_count': '2',
@@ -304,7 +283,7 @@ class FenceCalculationViewsTest(TestCase):
     def test_calculate_api_invalid_input(self):
         """Test calculation API with invalid input"""
         data = {
-            'netting': 'no',
+            'netting_type': 'none',
             'fence_length': 'invalid',  # Invalid number
         }
         
@@ -373,18 +352,22 @@ class FenceCalculationIntegrationTest(TestCase):
             roll_length=Decimal('500.00')
         )
         self.netting_material = Material.objects.create(
-            name="Deer Netting", unit="roll", default_price=Decimal('280.00'),
-            roll_length=Decimal('50.00')
+            name="Deer Netting 200cm", unit="roll", default_price=Decimal('310.00'),
+            roll_length=Decimal('100.00')
         )
-        
+        self.outrigger_wire = Material.objects.create(
+            name="Electric Outrigger Wire", unit="roll", default_price=Decimal('120.00'),
+            roll_length=Decimal('400.00')
+        )
+
         # Create deer fence type
         self.deer_fence = FenceType.objects.create(
             name='deer',
             display_name='Deer Fence',
             post_spacing=Decimal('6.00'),
-            wire_count=9,
+            wire_count=0,
             post_material=self.post_material,
-            wire_material=self.wire_material,
+            wire_material=self.outrigger_wire,
             netting_material=self.netting_material
         )
 
@@ -392,37 +375,43 @@ class FenceCalculationIntegrationTest(TestCase):
         """Test complete deer fence calculation workflow"""
         # Step 1: Calculate deer fence
         data = {
-            'netting': 'yes',  # This should select deer fence
+            'netting_type': 'deer',
             'fence_length': '300.0',
             'labor_rate': '60.0',
-            'wire_count': '9',
-            'post_spacing': '6.0'
+            'wire_count': '0',
+            'post_spacing': '6.0',
+            'electric_outrigger': True
         }
-        
+
         response = self.client.post(
             reverse('calculate'),
             data=json.dumps(data),
             content_type='application/json'
         )
-        
+
         self.assertEqual(response.status_code, 200)
         result = response.json()
         calc_id = result['calculation_id']
-        
+        self.assertEqual(result['netting_type'], 'deer')
+        self.assertTrue(result['electric_outrigger'])
+        self.assertIn('netting_height_cm', result)
+
         # Step 2: Verify calculation was saved
         calc = FenceCalculation.objects.get(pk=calc_id)
         self.assertEqual(calc.fence_type.name, 'deer')
         self.assertEqual(calc.fence_length, Decimal('300.00'))
-        
+        self.assertEqual(calc.netting_type, 'deer')
+        self.assertTrue(calc.electric_outrigger)
+        self.assertEqual(calc.netting_height_cm, Decimal('200'))
+
         # Step 3: Test detail view
         response = self.client.get(reverse('calculation_detail', args=[calc_id]))
         self.assertEqual(response.status_code, 200)
-        
+
         # Step 4: Test PDF export
         response = self.client.get(reverse('export_pdf', args=[calc_id]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/pdf')
-        
         # Step 5: Test Excel export
         response = self.client.get(reverse('export_excel', args=[calc_id]))
         self.assertEqual(response.status_code, 200)

@@ -102,6 +102,10 @@ class FenceCalculation(models.Model):
     wire_length_meters = models.DecimalField(max_digits=10, decimal_places=2)
     wire_rolls_required = models.DecimalField(max_digits=8, decimal_places=2)
 
+    netting_type = models.CharField(max_length=20, default='none')
+    netting_height_cm = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    electric_outrigger = models.BooleanField(default=False)
+
     labor_hours = models.DecimalField(max_digits=6, decimal_places=2)
     labor_rate_per_hour = models.DecimalField(max_digits=6, decimal_places=2)
     labor_cost = models.DecimalField(max_digits=10, decimal_places=2)

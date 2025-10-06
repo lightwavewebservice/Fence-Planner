@@ -6,15 +6,24 @@
     <form id="calc-form" class="space-y-3">
       {% csrf_token %}
       <div>
-        <label class="block text-sm font-medium mb-1 text-slate-300">Netting</label>
-        <select id="netting" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2">
-          <option value="no">No</option>
-          <option value="yes">Yes</option>
+        <label class="block text-sm font-medium mb-1 text-slate-300 flex items-center gap-2">Netting type
+          <span class="text-xs text-slate-400">Select animal protection mesh</span>
+        </label>
+        <select id="netting_type" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2">
+          <option value="none">No netting</option>
+          <option value="sheep">Sheep netting</option>
+          <option value="deer">Deer fence netting</option>
         </select>
+      </div>
+      <div id="outrigger-wrapper" class="hidden">
+        <label class="inline-flex items-center gap-2 text-sm text-slate-300">
+          <input id="electric_outrigger" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-primary-500 focus:ring-primary-400" />
+          <span>Electric outrigger wire <span class="text-xs text-slate-400">Optional hot wire on the outside</span></span>
+        </label>
       </div>
       <div>
         <label class="block text-sm font-medium mb-1 text-slate-300">Number of wires</label>
-        <input id="wire_count" type="number" min="1" max="20" step="1" value="2" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" />
+        <input id="wire_count" type="number" min="0" max="20" step="1" value="2" class="w-full border border-slate-700 bg-slate-800/70 text-slate-200 rounded px-3 py-2" />
       </div>
       <input type="hidden" id="fence_type" />
       <div>
@@ -113,20 +122,28 @@ async function loadFenceTypes() {
 
 // Add event listener for netting changes
 document.addEventListener('DOMContentLoaded', function() {
-  const nettingSelect = document.getElementById('netting');
+  const nettingSelect = document.getElementById('netting_type');
   const topWireTypeSelect = document.getElementById('top_wire_type');
   const hotWireCountContainer = document.getElementById('hot_wire_count_container');
   const hotWireCountSelect = document.getElementById('hot_wire_count');
   const wireCountInput = document.getElementById('wire_count');
+  const outriggerCheckbox = document.getElementById('electric_outrigger');
+  const outriggerWrapper = document.getElementById('outrigger-wrapper');
 
   // Netting toggle adjusts total wire count
   nettingSelect.addEventListener('change', function() {
-    // When netting is selected, adjust wire count to 1 (netting counts as 1 wire)
-    // When netting is not selected, restore default wire count
-    if (this.value === 'yes') {
+    const value = this.value;
+    if (value === 'deer') {
+      wireCountInput.value = 0;
+      outriggerWrapper.classList.remove('hidden');
+    } else if (value === 'sheep') {
       wireCountInput.value = 1;
+      outriggerWrapper.classList.add('hidden');
+      outriggerCheckbox.checked = false;
     } else {
       wireCountInput.value = 2;
+      outriggerWrapper.classList.add('hidden');
+      outriggerCheckbox.checked = false;
     }
     // Ensure hot wire count does not exceed total wires
     if (topWireTypeSelect.value === 'hot') {
@@ -230,11 +247,14 @@ function validateInput() {
   }
   
   // Validate wire count if provided
+  const nettingType = document.getElementById('netting_type').value;
   const wireCount = document.getElementById('wire_count').value;
   if (wireCount) {
     const count = parseInt(wireCount);
-    if (isNaN(count) || count <= 0) {
-      errors.push('Wire count must be greater than 0');
+    if (isNaN(count) || count < 0) {
+      errors.push('Wire count cannot be negative');
+    } else if (count === 0 && nettingType !== 'deer') {
+      errors.push('Wire count must be at least 1 unless using deer netting');
     } else if (count > 20) {
       errors.push('Wire count cannot exceed 20');
     }
@@ -266,7 +286,7 @@ async function doCalculate(evt) {
     // Create FormData instead of JSON to ensure CSRF works properly
     const formData = new FormData();
     formData.append('csrfmiddlewaretoken', csrfToken);
-    formData.append('netting', document.getElementById('netting').value);
+    formData.append('netting_type', document.getElementById('netting_type').value);
     formData.append('fence_length', document.getElementById('fence_length').value);
     
     const laborRate = document.getElementById('labor_rate').value;
@@ -285,7 +305,11 @@ async function doCalculate(evt) {
     if (postSpacing) formData.append('post_spacing', postSpacing);
     
     const wireCount = document.getElementById('wire_count').value;
-    if (wireCount) formData.append('wire_count', wireCount);
+    if (wireCount !== '') formData.append('wire_count', wireCount);
+
+    if (document.getElementById('netting_type').value === 'deer') {
+      formData.append('electric_outrigger', document.getElementById('electric_outrigger').checked ? 'true' : 'false');
+    }
     
     // Staples per box submission removed; backend will use default settings
     
@@ -328,8 +352,26 @@ async function doCalculate(evt) {
     }
     
     // Add netting if available
-    if (data.material_costs && data.material_costs.netting) {
-      rows.push(['Netting rolls', data.material_costs.netting.quantity]);
+    if (data.netting_type && data.netting_type !== 'none') {
+      const label = data.netting_type === 'deer' ? 'Netting type' : 'Netting type';
+      rows.push([label, data.netting_type === 'deer' ? 'Deer' : 'Sheep']);
+      if (data.netting_height_cm) {
+        rows.push(['Netting height (cm)', data.netting_height_cm]);
+      }
+      if (data.material_costs && data.material_costs.netting) {
+        const rollsLabel = data.netting_type === 'deer' ? 'Deer netting rolls' : 'Netting rolls';
+        rows.push([rollsLabel, data.material_costs.netting.quantity]);
+      }
+    }
+
+    if (data.electric_outrigger) {
+      rows.push(['Electric outrigger wire', data.electric_outrigger_details?.wire_rolls ?? 0]);
+      if (data.electric_outrigger_details?.insulators) {
+        rows.push(['Outrigger insulators', data.electric_outrigger_details.insulators]);
+      }
+      if (data.electric_outrigger_details?.connectors) {
+        rows.push(['Outrigger connectors', data.electric_outrigger_details.connectors]);
+      }
     }
     
     // Add staples if available
