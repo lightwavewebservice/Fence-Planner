@@ -1,4 +1,7 @@
 Django>=4.2,<5.0
+gunicorn>=22.0
+psycopg2-binary>=2.9
+dj-database-url>=2.1
 djangorestframework>=3.14
 reportlab>=3.6
 openpyxl>=3.1
